@@ -241,7 +241,7 @@ class Model(nn.Module):
             nn.Linear(self.d_model, self.pred_len),
         )
 
-    def forward(self, x: torch.Tensor, cycle_index=None) -> torch.Tensor:
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         if self.use_revin:
             x = self.revin_layer(x, mode="norm")
 
