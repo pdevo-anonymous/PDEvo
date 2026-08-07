@@ -1,6 +1,6 @@
 from data_provider.data_factory import data_provider
 from exp.exp_basic import Exp_Basic
-from models import PDEvoNet
+from models import PDEvoNet,PDENet_raw
 from utils.tools import EarlyStopping, adjust_learning_rate, visual, test_params_flop
 from utils.metrics import metric
 
@@ -20,6 +20,89 @@ import numpy as np
 
 warnings.filterwarnings('ignore')
 
+class HeteroLaplace_loss(nn.Module):
+    def __init__(self, num_channels: int, alpha_init: float = 0.5, eps: float = 1e-6):
+        super().__init__()
+        self.eps = eps
+        self.log_sigma_c = nn.Parameter(torch.zeros(num_channels))
+        self.alpha_raw = nn.Parameter(torch.tensor(float(alpha_init)))
+        self._ln2 = math.log(2.0)
+
+    @torch.no_grad()
+    def calibrate_from_gt(self, gt: torch.Tensor):
+
+        median_t = gt.median(dim=1, keepdim=True).values  # (B,1,C)
+        mad = (gt - median_t).abs().median(dim=1, keepdim=True).values  # (B,1,C)
+        b_init = (mad / self._ln2).mean(dim=(0, 1)).clamp_min(self.eps)  # (C,)
+        self.log_sigma_c.data = torch.log(torch.expm1(b_init))  # softplus(log_sigma) ≈ b_init
+
+    def forward(self, pred: torch.Tensor, gt: torch.Tensor) -> torch.Tensor:
+        B, L, C = pred.shape
+        e = (pred - gt).abs()
+
+        device, dtype = pred.device, pred.dtype
+
+        l = torch.arange(1, L + 1, device=device, dtype=dtype).view(1, L, 1)
+        sigma_c = F.softplus(self.log_sigma_c).to(device=device, dtype=dtype).view(1, 1, C)
+        alpha = F.softplus(self.alpha_raw).to(device=device, dtype=dtype)
+
+        b = sigma_c * torch.pow(l, alpha) + self.eps
+
+        loss = e / b + torch.log(b)
+        return loss.mean()
+
+
+class WeightedL1Loss:
+    def __init__(self, alpha, loss_mode):
+        self.alpha = alpha
+        self.loss_mode = loss_mode
+        self.weights = nn.Parameter(torch.ones(1, 96, 1, dtype=torch.float32),requires_grad=True)
+
+        if self.loss_mode == 'L1':
+            self.loss_fun = nn.L1Loss(reduction='none')
+        elif self.loss_mode == 'L2':
+            self.loss_fun = nn.MSELoss(reduction='none')
+        elif self.loss_mode == 'L1L2':
+            self.loss_fun1 = nn.L1Loss(reduction='none')
+            self.loss_fun2 = nn.MSELoss(reduction='none')
+
+    def __call__(self, pred, gt):
+        # [b,l,n]
+        if pred.ndim == 1:
+            # imputation
+            mask = torch.isnan(gt)
+            if torch.any(mask):
+                # pred, gt = pred.masked_fill(mask, 0), gt.masked_fill(mask, 0)
+                pred, gt = pred[~mask], gt[~mask]
+
+            loss_fun = nn.L1Loss(reduction='mean')
+            weightedLoss = loss_fun(pred, gt)
+        else:
+            L = pred.shape[1]
+            # weights = (torch.tensor([(i + 1) ** (-self.alpha) for i in range(L)]).unsqueeze(dim=0).unsqueeze(dim=-1).to(pred.device))
+            # 1. 生成时间步索引 [1, 2, …, L]
+            time_steps = torch.arange(1, L + 1, device=pred.device, dtype=pred.dtype)
+            # 2. 计算衰减权重 l^{-alpha}，得到形如 [1^{-α}, 2^{-α}, …, L^{-α}] 的向量
+            decay_weights = time_steps.pow(-self.alpha)
+            # 3. 调整形状到 (1, L, 1)，以便和预测 pred 对应的 (batch_size, L, feature) 做广播
+            weights = decay_weights.unsqueeze(0).unsqueeze(-1)
+
+            if self.loss_mode in ['L1', 'L2']:
+                # loss_vec = nn.L1Loss(pred, gt)
+                loss_vec = self.loss_fun(pred, gt)
+                weightedLoss = torch.mean(loss_vec)
+                # weightedLoss = torch.mean(loss_vec * weights)
+                # weightedLoss = torch.mean(loss_vec * self.weights.to(pred.device))
+
+            elif self.loss_mode == 'L1L2':
+                loss_vec = self.loss_fun1(pred, gt)
+                loss_vec2 = self.loss_fun2(pred, gt)
+                weightedLoss = torch.mean(loss_vec * weights + loss_vec2 * weights)
+            else:
+                raise NotImplementedError
+        return weightedLoss
+
+
 
 class Exp_Main(Exp_Basic):
     def __init__(self, args):
@@ -27,7 +110,7 @@ class Exp_Main(Exp_Basic):
 
     def _build_model(self):
         model_dict = {
-            'PDEvoNet': PDEvoNet,
+            'PDENet': PDEvoNet,
         }
         model = model_dict[self.args.model].Model(self.args).float()
 
@@ -67,7 +150,7 @@ class Exp_Main(Exp_Basic):
                 if self.args.use_amp:
                     with torch.cuda.amp.autocast():
                         if any(substr in self.args.model for substr in {'', ''}):
-                            outputs = self.model(batch_x, batch_cycle)
+                            outputs = self.model(batch_x)
                         elif any(substr in self.args.model for substr in
                                  {'Linear', 'MLP', 'SegRNN', 'TST'}):
                             outputs = self.model(batch_x)
@@ -78,7 +161,7 @@ class Exp_Main(Exp_Basic):
                                 outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
                 else:
                     if any(substr in self.args.model for substr in {'', ''}):
-                        outputs = self.model(batch_x, batch_cycle)
+                        outputs = self.model(batch_x)
                     elif any(substr in self.args.model for substr in {'Linear', 'MLP', 'SegRNN', 'TST'}):
                         outputs = self.model(batch_x)
                     else:
@@ -115,7 +198,9 @@ class Exp_Main(Exp_Basic):
         early_stopping = EarlyStopping(patience=self.args.patience, verbose=True)
 
         model_optim = self._select_optimizer()
-        criterion = self._select_criterion()[1]
+        # criterion = self._select_criterion()[1]
+        criterion = HeteroLaplace_loss(num_channels=self.args.loss_channels)
+        # criterion = WeightedL1Loss(self.args.lossfun_alpha, self.args.loss_mode)
 
 
         if self.args.use_amp:
@@ -152,7 +237,7 @@ class Exp_Main(Exp_Basic):
                 if self.args.use_amp:
                     with torch.cuda.amp.autocast():
                         if any(substr in self.args.model for substr in {'', ''}):
-                            outputs = self.model(batch_x, batch_cycle)
+                            outputs = self.model(batch_x)
                         elif any(substr in self.args.model for substr in
                                  {'Linear', 'MLP', 'SegRNN', 'TST'}):
                             outputs = self.model(batch_x)
@@ -169,7 +254,7 @@ class Exp_Main(Exp_Basic):
                         train_loss.append(loss.item())
                 else:
                     if any(substr in self.args.model for substr in {'', ''}):
-                        outputs = self.model(batch_x, batch_cycle)
+                        outputs = self.model(batch_x)
                     elif any(substr in self.args.model for substr in {'Linear', 'MLP', 'SegRNN', 'TST'}):
                         outputs = self.model(batch_x)
                     else:
@@ -263,7 +348,7 @@ class Exp_Main(Exp_Basic):
                 if self.args.use_amp:
                     with torch.cuda.amp.autocast():
                         if any(substr in self.args.model for substr in {'', ''}):
-                            outputs = self.model(batch_x, batch_cycle)
+                            outputs = self.model(batch_x)
                         elif any(substr in self.args.model for substr in
                                  {'Linear', 'MLP', 'SegRNN', 'TST'}):
                             outputs = self.model(batch_x)
@@ -274,7 +359,7 @@ class Exp_Main(Exp_Basic):
                                 outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
                 else:
                     if any(substr in self.args.model for substr in {'', ''}):
-                        outputs = self.model(batch_x, batch_cycle)
+                        outputs = self.model(batch_x)
                     elif any(substr in self.args.model for substr in {'Linear', 'MLP', 'SegRNN', 'TST'}):
                         outputs = self.model(batch_x)
                     else:
@@ -373,7 +458,7 @@ class Exp_Main(Exp_Basic):
                 if self.args.use_amp:
                     with torch.cuda.amp.autocast():
                         if any(substr in self.args.model for substr in {'', ''}):
-                            outputs = self.model(batch_x, batch_cycle)
+                            outputs = self.model(batch_x)
                         elif any(substr in self.args.model for substr in
                                  {'Linear', 'MLP', 'SegRNN', 'TST'}):
                             outputs = self.model(batch_x)
@@ -384,7 +469,7 @@ class Exp_Main(Exp_Basic):
                                 outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
                 else:
                     if any(substr in self.args.model for substr in {'', ''}):
-                        outputs = self.model(batch_x, batch_cycle)
+                        outputs = self.model(batch_x)
                     elif any(substr in self.args.model for substr in {'Linear', 'MLP', 'SegRNN', 'TST'}):
                         outputs = self.model(batch_x)
                     else:
