@@ -53,7 +53,3 @@ python run.py
 ## Acknowledgement
 
 We sincerely acknowledge the THUML Time-Series-Library for its valuable codebase and experimental framework.
-
-## Anonymous Review Notice
-
-This repository is prepared for anonymous review. Author information, affiliation information, local paths, experimental logs, checkpoints, model weights, and other identifying metadata have been removed.
