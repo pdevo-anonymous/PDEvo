@@ -1,15 +1,16 @@
 # PDEvo
 
-This repository provides the anonymous implementation of **PDEvo**.
+This repository provides the anonymous review version of **PDEvo**, including the core implementation of the proposed model.
 
-The repository contains the core model, training entry, data provider, basic layers, and utility files. The main model is implemented in `models/PDEvoNet.py`.
+## Overview
 
-## Structure
+PDEvo is designed for long-term time series forecasting. The model captures local dynamic variations through differential patch representations and further enhances the forecasting representation with PDE-inspired evolution and variable-level interaction.
+
+## Repository Structure
 
 ```text
 PDEvo/
 ├── Config/
-│   └── config_hyperparams.png
 ├── data_provider/
 ├── exp/
 ├── layers/
@@ -21,30 +22,38 @@ PDEvo/
 └── run.py
 ```
 
-## Model
+## Core Implementation
 
-The core implementation is provided in:
+The main model is implemented in:
 
 ```text
 models/PDEvoNet.py
 ```
 
+The repository also includes the training entry, data provider, basic layers, and utility functions required by the model.
+
+## Hyperparameter Settings
+
+The `Config/` directory provides the main hyperparameter settings for different datasets and prediction lengths.
+
 ## Usage
 
-Install the required packages:
+Install the required dependencies:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-Run the model with:
+Run the model:
 
 ```bash
 python run.py
 ```
 
-## Anonymous Review
+## Acknowledgement
 
-This repository is prepared for anonymous review.
+We sincerely acknowledge the THUML Time-Series-Library for its valuable codebase and experimental framework.
 
-Identifying information, local paths, logs, checkpoints, model weights, and private metadata have been removed.
+## Anonymous Review Notice
+
+This repository is prepared for anonymous review. Author information, affiliation information, local paths, experimental logs, checkpoints, model weights, and other identifying metadata have been removed.
