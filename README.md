@@ -29,16 +29,6 @@ The core implementation is provided in:
 models/PDEvoNet.py
 ```
 
-## Hyperparameters
-
-The hyperparameter settings for different datasets and prediction lengths are provided in:
-
-```text
-Config/config_hyperparams.png
-```
-
-![Hyperparameter Configuration](Config/config_hyperparams.png)
-
 ## Usage
 
 Install the required packages:
