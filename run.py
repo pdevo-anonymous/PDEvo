@@ -12,14 +12,15 @@ parser.add_argument('--random_seed', type=int, default=2026, help='random seed')
 # basic config
 parser.add_argument('--is_training', type=int, required=False, default=1, help='status')
 parser.add_argument('--model_id', type=str, required=False, default='test', help='model id')
-parser.add_argument('--model', type=str, required=False, default='PDEvoNet',help='model name')
+parser.add_argument('--model', type=str, required=False, default='PDEvoNet',help='PDEvoNet, PDETime etc...')
 
-n = 21
-name = 'weather'
+
+n = 7
+name = 'ETTh1'
 parser.add_argument('--loss_channels', type=int, default=n, help='')
 parser.add_argument('--lossfun_alpha', type=float, default=0., help='')
 parser.add_argument('--loss_mode', type=str, default='L1',choices=['L1', 'L2', 'L1L2', 'MAPE', 'MASE', 'SMAPE'],help='损失模式类型')
-parser.add_argument('--data', type=str, required=False, default='weather', help='dataset type')
+parser.add_argument('--data', type=str, required=False, default=f'{name}', help='dataset type')
 parser.add_argument('--root_path', type=str, default='../data/', help='root path of the data file')
 parser.add_argument('--data_path', type=str, default=f'{name}.csv', help='data file')
 parser.add_argument('--features', type=str, default='M',
@@ -41,7 +42,7 @@ parser.add_argument('--use_revin', type=int, default=1, help='1: use revin or 0:
 
 # PatchTST
 parser.add_argument('--fc_dropout', type=float, default=0., help='fully connected dropout')
-parser.add_argument('--head_dropout', type=float, default=0., help='head dropout')
+parser.add_argument('--head_dropout', type=float, default=0.5, help='head dropout')
 parser.add_argument('--patch_len', type=int, default=24, help='patch length')
 parser.add_argument('--stride', type=int, default=8, help='stride')
 parser.add_argument('--padding_patch', default='end', help='None: None; end: padding on the end')
@@ -95,7 +96,7 @@ parser.add_argument('--use_amp', action='store_true', help='use automatic mixed 
 
 # GPU
 parser.add_argument('--use_gpu', type=bool, default=True, help='use gpu')
-parser.add_argument('--gpu', type=int, default=1, help='gpu')
+parser.add_argument('--gpu', type=int, default=0, help='gpu')
 parser.add_argument('--use_multi_gpu', action='store_true', help='use multiple gpus', default=False)
 parser.add_argument('--devices', type=str, default='0,1', help='device ids of multile gpus')
 parser.add_argument('--test_flop', action='store_true', default=False, help='See utils/tools for usage')
