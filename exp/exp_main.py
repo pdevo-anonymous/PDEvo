@@ -1,6 +1,6 @@
 from data_provider.data_factory import data_provider
 from exp.exp_basic import Exp_Basic
-from models import PDEvoNet,PDENet_raw
+from models import PDEvoNet, PDETime, PDEvoNet_Lag_8_Diff, PDEvoNet_Free_3_point_Mixer
 from utils.tools import EarlyStopping, adjust_learning_rate, visual, test_params_flop
 from utils.metrics import metric
 
@@ -110,7 +110,11 @@ class Exp_Main(Exp_Basic):
 
     def _build_model(self):
         model_dict = {
-            'PDENet': PDEvoNet,
+            'PDEvoNet': PDEvoNet,
+            'PDETime': PDETime,
+            'PDEvoNet_Lag_8_Diff': PDEvoNet_Lag_8_Diff,
+            'PDEvoNet_Free_3_point_Mixer': PDEvoNet_Free_3_point_Mixer,
+            # 'PDEvoNet': PDEvoNet,
         }
         model = model_dict[self.args.model].Model(self.args).float()
 
@@ -227,7 +231,6 @@ class Exp_Main(Exp_Basic):
                 batch_y = batch_y.float().to(self.device)
                 batch_x_mark = batch_x_mark.float().to(self.device)
                 batch_y_mark = batch_y_mark.float().to(self.device)
-                batch_cycle = batch_cycle.int().to(self.device)
 
                 # decoder input
                 dec_inp = torch.zeros_like(batch_y[:, -self.args.pred_len:, :]).float()
